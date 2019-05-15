@@ -134,15 +134,15 @@ def add_ngram(sequences, token_indice, ngram_range=2):
 
     return new_sequences
 
-def load_dataset(maxlen,
-    ngram_range=1):
+
+def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1):
     """
     """
-    train_data = './DeliciousMIL/Data/train-data.dat'
-    train_labels = './DeliciousMIL/Data/train-label.dat'
-    test_data = './DeliciousMIL/Data/test-data.dat'
-    test_labels = './DeliciousMIL/Data/test-label.dat'
-    vocab_file = './DeliciousMIL/Data/vocabs.txt'
+    train_data = path + '/train-data.dat'
+    train_labels = path + '/train-label.dat'
+    test_data = path + '/test-data.dat'
+    test_labels = path + '/test-label.dat'
+    vocab_file = path + '/vocabs.txt'
 
     print('Loading data...')
     X_train, y_train = read_data(train_data,train_labels)
