@@ -218,18 +218,18 @@ def hamming_score(y_true, y_pred, normalize=True, sample_weight=None):
     return np.mean(acc_list)
 
 
-
-def hyperparameters(classifier, params, X, y,best,scoring, clf_name, random_search=True):
+def hyperparameters_search(classifier, params, X, y, best, scoring, clf_name, candidates=10, cv=10, random_search=True,
+                           verbose=1):
     best_params = []
     cv_results = []
     best_scores = []
     print("\nΕstimator : " + clf_name)
     if random_search:
-        searcher = RandomizedSearchCV(classifier, params, cv=5, n_jobs=-1,
-                                      verbose=1, scoring=scoring, refit=best)
+        searcher = RandomizedSearchCV(classifier, params, n_iter=candidates, cv=cv, n_jobs=-1,
+                                      verbose=verbose, scoring=scoring, refit=best)
     else:
-        searcher = GridSearchCV(classifier, params, cv=4, n_jobs=-1,
-                                verbose=1, scoring=scoring, refit=best)
+        searcher = GridSearchCV(classifier, params, cv=cv, n_jobs=-1,
+                                verbose=verbose, scoring=scoring, refit=best)
 
     # Finding the best parameters in the original set in order to generalize better
     searcher.fit(X, y)
