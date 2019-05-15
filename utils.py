@@ -11,6 +11,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
 import sys
 import time
+from sklearn.model_selection import train_test_split
 import pandas as pd
 import numpy as np
 import re
@@ -35,6 +36,11 @@ from sklearn.model_selection import RandomizedSearchCV,GridSearchCV
 
 from keras.preprocessing import *
 
+labels = ['programming', 'style', 'reference', 'java', 'web', 'internet', 'culture',
+          'design', 'education', 'language', 'books', 'writing', 'computer', 'english', 'politics', 'history',
+          'philosophy',
+          'science', 'religion', 'grammar']
+
 def read_data(file,lab_file):
 
     X_data = pd.read_csv(file,header=None)
@@ -45,7 +51,7 @@ def read_data(file,lab_file):
         .split())
     X_data = X_data.map(lambda x: [int(tok.strip()) for tok in x])
     y_data = y_data[0].map(lambda x: np.array([int(lab) for lab in x.split()]))
-    
+
     return X_data.tolist(),np.array(y_data.tolist())
 
 
@@ -55,7 +61,7 @@ def read_data(file,lab_file):
 
 
 def read_data_sentences(file,lab_file,maxlen,max_sentence_len):
-    
+
     X_data = pd.read_csv(file,header=None)
     y_data = pd.read_csv(lab_file,header=None)
 
@@ -135,7 +141,7 @@ def add_ngram(sequences, token_indice, ngram_range=2):
     return new_sequences
 
 
-def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1):
+def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1, binary=False):
     """
     """
     train_data = path + '/train-data.dat'
@@ -196,6 +202,21 @@ def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1):
     print('X_train shape:', X_train.shape)
     print('X_test shape:', X_test.shape)
 
+    if binary:
+        # Get the most frequent class only.
+        print('\nGetting the most frequent class...')
+        most_frequent_counts = np.sum(np.transpose(y_train), axis=1)
+        most_frequent_index = most_frequent_counts.argmax()
+        y_train = y_train[:, most_frequent_index]
+        y_test = y_test[:, most_frequent_index]
+        print('The most frequent class was the word \'{}\', with {} appearances.'
+              .format(labels[most_frequent_index], most_frequent_counts.max()))
+
+        # Split test set to test and unlabeled.
+        print('Splitting test data to test and unlabeled sets.')
+        X_unlabeled, X_test, y_hidden, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=0)
+        print('{} test sequences.'.format(X_test.shape[0]))
+        print('{} unlabeled sequences.'.format(X_unlabeled.shape[0]))
 
     return X_train,y_train,X_test,y_test,word_index
 
