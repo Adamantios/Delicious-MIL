@@ -212,12 +212,6 @@ def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1, binary=False
         print('The most frequent class was the word \'{}\', with {} appearances.'
               .format(labels[most_frequent_index], most_frequent_counts.max()))
 
-        # Split test set to test and unlabeled.
-        print('Splitting test data to test and unlabeled sets.')
-        X_unlabeled, X_test, y_hidden, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=0)
-        print('{} test sequences.'.format(X_test.shape[0]))
-        print('{} unlabeled sequences.'.format(X_unlabeled.shape[0]))
-
     return X_train,y_train,X_test,y_test,word_index
 
 
