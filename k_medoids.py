@@ -12,6 +12,7 @@ class KMedoidsHaussdorff:
         n_data = data.shape[0]
 
         # Initialize distances array.
+        print('Calculating Hausdorff distances...')
         self.distances = np.empty((n_data, n_data))
 
         # Calculate symmetric haussdorff distances.
@@ -21,6 +22,7 @@ class KMedoidsHaussdorff:
                                                    directed_hausdorff(y, x)[0])
 
         # Pick k random medoids.
+        print('Randomly initializing medoids...')
         curr_medoids = np.array([-1] * k)
         while not len(np.unique(curr_medoids)) == k:
             curr_medoids = np.array([randint(0, n_data - 1) for _ in range(k)])
@@ -28,6 +30,7 @@ class KMedoidsHaussdorff:
         new_medoids = np.empty(k)
 
         # Until the medoids stop updating, do the following:
+        print('Running K-Medoids algorithm...')
         clusters = None
         n_iter = 0
         while not ((old_medoids == curr_medoids).all()) or n_iter != max_iter:
