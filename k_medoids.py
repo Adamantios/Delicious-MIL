@@ -8,8 +8,8 @@ class KMedoidsHaussdorff:
     def __init__(self):
         self.distances = None
 
-    def cluster(self, data: list, k=3, max_iter=300):
-        n_data = len(data)
+    def cluster(self, data: np.ndarray, k=3, max_iter=300):
+        n_data = data.shape[0]
 
         # Initialize distances array.
         self.distances = np.empty((n_data, n_data))
@@ -17,8 +17,8 @@ class KMedoidsHaussdorff:
         # Calculate symmetric haussdorff distances.
         for outer, x in enumerate(data):
             for inner, y in enumerate(data):
-                self.distances[outer, inner] = max(directed_hausdorff(x.toarray(), y.toarray())[0],
-                                                   directed_hausdorff(y.toarray(), x.toarray())[0])
+                self.distances[outer, inner] = max(directed_hausdorff(x, y)[0],
+                                                   directed_hausdorff(y, x)[0])
 
         # Pick k random medoids.
         curr_medoids = np.array([-1] * k)
