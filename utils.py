@@ -1,9 +1,22 @@
 import re
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.stats as sp
 from keras.preprocessing import *
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, hamming_loss
+from sklearn.metrics import f1_score, precision_score
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
+from sklearn.multioutput import ClassifierChain
+from sklearn.naive_bayes import GaussianNB
+from sklearn.tree import DecisionTreeClassifier
+from skmultilearn.ensemble import RakelD
+from skmultilearn.problem_transform import BinaryRelevance
+from skmultilearn.problem_transform import ClassifierChain
+from skmultilearn.problem_transform import LabelPowerset
+from termcolor import colored
 
 labels = ['programming', 'style', 'reference', 'java', 'web', 'internet', 'culture', 'design', 'education', 'language',
           'books', 'writing', 'computer', 'english', 'politics', 'history', 'philosophy', 'science', 'religion',
@@ -20,64 +33,11 @@ def read_data(file, lab_file):
     return X_data.tolist(), np.array(y_data.tolist())
 
 
-def read_data_sentences(file, lab_file, maxlen, max_sentence_len):
-    X_data = pd.read_csv(file, header=None)
-    y_data = pd.read_csv(lab_file, header=None)
-
-    X_data = X_data[0].map(lambda x: x.strip())
-
-    X_data = X_data.map(lambda x: re.findall('<\d+>([^<]+)', x)[1:])
-
-    X_data = X_data.map(lambda x: [[int(tok.strip()) for tok in sent.strip().split()] for sent in x])
-
-    y_data = y_data[0].map(lambda x: np.array([int(lab) for lab in x.split()]))
-
-    X_data = X_data.tolist()
-    X_data_int = np.zeros((len(X_data), maxlen, max_sentence_len))
-    for idx, text_bag in enumerate(X_data):
-        sentences_batch = np.zeros((maxlen, max_sentence_len))
-        sentences = sequence.pad_sequences(text_bag,
-                                           maxlen=max_sentence_len,
-                                           padding='post',
-                                           truncating='post',
-                                           dtype='int32')
-        for j, sent in enumerate(sentences):
-            if j >= max_sentence_len:
-                break
-            sentences_batch[j, :] = sent
-        X_data_int[idx, :, :] = sentences_batch
-
-    X_data = X_data_int
-
-    return X_data, np.array(y_data.tolist())
-
-
-def create_ngram_set(input_list, ngram_value=2):
-    """Extract a set of n-grams from a list of integers."""
-    return set(zip(*[input_list[i:] for i in range(ngram_value)]))
-
-
-def add_ngram(sequences, token_index, ngram_range=2):
-    """Augment the input list by appending n-grams values."""
-    new_sequences = []
-    for input_list in sequences:
-        new_list = input_list[:]
-        for ngram_value in range(2, ngram_range + 1):
-            for i in range(len(new_list) - ngram_value + 1):
-                ngram = tuple(new_list[i:i + ngram_value])
-                if ngram in token_index:
-                    new_list.append(token_index[ngram])
-        new_sequences.append(new_list)
-
-    return new_sequences
-
-
-def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1, binary=False):
+def load_dataset(maxlen, path='./DeliciousMIL/Data', binary=False):
     train_data = path + '/train-data.dat'
     train_labels = path + '/train-label.dat'
     test_data = path + '/test-data.dat'
     test_labels = path + '/test-label.dat'
-    vocab_file = path + '/vocabs.txt'
 
     print('Loading data...')
     X_train, y_train = read_data(train_data, train_labels)
@@ -85,39 +45,7 @@ def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1, binary=False
     print(len(X_train), 'train sequences')
     print(len(X_test), 'test sequences')
 
-    word_index = {}
-    with open(vocab_file, 'r') as vf:
-        for line in vf:
-            line = line.strip().split(', ')
-            key = line[0]
-            value = int(line[1])
-            word_index[key] = value
-
-    max_features = len(word_index)
-
-    if ngram_range > 1:
-        print('Adding {}-gram features'.format(ngram_range))
-        # Create set of unique n-gram from the training set.
-        ngram_set = set()
-        for input_list in X_train:
-            for i in range(2, ngram_range + 1):
-                set_of_ngram = create_ngram_set(input_list, ngram_value=i)
-                ngram_set.update(set_of_ngram)
-
-        # Dictionary mapping n-gram token to a unique integer.
-        # Integer values are greater than max_features in order
-        # to avoid collision with existing features.
-        start_index = max_features + 1
-        token_indice = {v: k + start_index for k, v in enumerate(ngram_set)}
-        indice_token = {token_indice[k]: k for k in token_indice}
-
-        # max_features is the highest integer that could be found in the dataset.
-        max_features = np.max(list(indice_token.keys())) + 1
-
-        # Augmenting x_train and x_test with n-grams features
-        X_train = add_ngram(X_train, token_indice, ngram_range)
-        X_test = add_ngram(X_test, token_indice, ngram_range)
-
+    # Padding data.
     X_train = sequence.pad_sequences(X_train, maxlen=maxlen)
     X_test = sequence.pad_sequences(X_test, maxlen=maxlen)
     print('X_train shape:', X_train.shape)
@@ -133,21 +61,87 @@ def load_dataset(maxlen, path='./DeliciousMIL/Data', ngram_range=1, binary=False
         print('The most frequent class was the word \'{}\', with {} appearances.'
               .format(labels[most_frequent_index], most_frequent_counts.max()))
 
-    return X_train, y_train, X_test, y_test, word_index
+    return X_train, y_train, X_test, y_test
 
 
-def hamming_score(y_true, y_pred):
-    """Compute the Hamming score."""
-    acc_list = []
-    for i in range(y_true.shape[0]):
-        set_true = set(np.where(y_true[i])[0])
-        set_pred = set(np.where(y_pred[i])[0])
-        if len(set_true) == 0 and len(set_pred) == 0:
-            tmp_a = 1
-        else:
-            tmp_a = len(set_true.intersection(set_pred)) / float(len(set_true.union(set_pred)))
-        acc_list.append(tmp_a)
-    return np.mean(acc_list)
+def redefine(base, keys, values):
+    '''Inputs a dictionary keys and values and a base string
+    and outputs a new dictionary with the base string concatenated'''
+    new_k = [base + keys[i] for i in range(len(keys))]
+    dictionary = {new_k[i]: values[i] for i in range(len(keys))}
+    return dictionary
+
+
+def pipeline(method, X_train, y_train, scoring, params, search_r=True):
+    if search_r:
+        # Random search params
+        r = np.random.uniform(-2, 2, size=5)
+        C = np.array(10 ** r)
+        var_exp = np.random.uniform(-2, -9, size=5)
+        var_smooth = np.array(10 ** var_exp)
+
+        params_tree = {'__max_depth': sp.randint(1, 30),
+                       '__max_features': sp.randint(1, X_train.shape[1]),
+                       '__min_samples_split': sp.randint(2, X_train.shape[0] / 3),
+                       '__criterion': ['gini', 'entropy']}
+        params_lgr = {'__C': C}
+        params_nb = {'__var_smoothing': var_smooth}
+
+    else:
+        params_tree, params_lgr, params_nb = params[0], params[1], params[2]
+
+    tree_k, tree_v = list(params_tree.keys()), list(params_tree.values())
+    lgr_k, lgr_v = list(params_lgr.keys()), list(params_lgr.values())
+    nb_k, nb_v = list(params_nb.keys()), list(params_nb.values())
+
+    if method == 'CC':
+        base_str = 'base_estimator'
+        params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), redefine(base_str, lgr_k,
+                                                                                          lgr_v), redefine(base_str,
+                                                                                                           nb_k, nb_v)
+        params = [params_lgr, params_tree, params_nb]
+
+        print(colored('Fitting Classifiers Chain pipeline...', 'green'))
+        classifiers = {
+            "Logistic Regression": ClassifierChain(LogisticRegression(random_state=0, solver='lbfgs', n_jobs=-1)),
+            "Decision Tree Classifier": ClassifierChain(DecisionTreeClassifier()),
+            "Gaussian NaiveBayes": ClassifierChain(GaussianNB())}
+
+    elif method == 'RAkEL':
+        base_str = 'base_classifier'
+        params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), redefine(base_str, lgr_k,
+                                                                                          lgr_v), redefine(base_str,
+                                                                                                           nb_k, nb_v)
+        params = [params_lgr, params_tree, params_nb]
+
+        print(colored('Fitting RAkEL pipeline...', 'green'))
+        classifiers = {"Logistic Regression": RakelD(LogisticRegression(random_state=0, solver='lbfgs', n_jobs=-1)),
+                       "Decision Tree Classifier": RakelD(DecisionTreeClassifier(),
+                                                          labelset_size=5),
+                       "Gaussian NaiveBayes": RakelD(GaussianNB(),
+                                                     labelset_size=5)}
+
+    elif method == 'BinaryRelevance':
+        base_str = 'classifier'
+        params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), redefine(base_str, lgr_k,
+                                                                                          lgr_v), redefine(base_str,
+                                                                                                           nb_k, nb_v)
+        params = [params_lgr, params_tree, params_nb]
+
+        print(colored('Fitting BinaryRelevance pipeline...', 'green'))
+        classifiers = {
+            "Logistic Regression": BinaryRelevance(LogisticRegression(random_state=0, solver='lbfgs', n_jobs=-1)),
+            "Decision Tree Classifier": BinaryRelevance(DecisionTreeClassifier()),
+            "Gaussian NaiveBayes": BinaryRelevance(GaussianNB())}
+
+    else:
+        raise ValueError('Invalid method passed. Expected one of: "CC", "RAkEL", "BinaryRelevance", got {} instead'
+                         .format(method))
+
+    res = {}
+    for keys, classifier, par in zip(classifiers.keys(), classifiers.values(), params):
+        res[keys] = hyperparameters_search(classifier, par, X_train, y_train, 'Hamming Loss', scoring, keys,
+                                           candidates=30, random_search=search_r)
 
 
 def hyperparameters_search(classifier, params, X, y, best, scoring, clf_name, candidates=10, cv=10, random_search=True,
@@ -155,13 +149,13 @@ def hyperparameters_search(classifier, params, X, y, best, scoring, clf_name, ca
     best_params = []
     cv_results = []
     best_scores = []
-    print("\nΕstimator : " + clf_name)
+    print('\n' + colored('Estimator: ', 'blue') + clf_name)
     if random_search:
         searcher = RandomizedSearchCV(classifier, params, n_iter=candidates, cv=cv, n_jobs=-1,
                                       verbose=verbose, scoring=scoring, refit=best)
     else:
-        searcher = GridSearchCV(classifier, params, cv=cv, n_jobs=-1,
-                                verbose=verbose, scoring=scoring, refit=best)
+        searcher = GridSearchCV(classifier, params, cv=4, n_jobs=-1,
+                                verbose=0, scoring=scoring, refit=best)
 
     # Finding the best parameters in the original set in order to generalize better
     searcher.fit(X, y)
@@ -169,10 +163,208 @@ def hyperparameters_search(classifier, params, X, y, best, scoring, clf_name, ca
     best_params.append(searcher.best_params_)
     best_scores.append(searcher.best_score_)
 
-    final_results = [best_params, cv_results, best_scores]
+    results = [best_params, cv_results, best_scores]
 
     print('Best parameters found for Estimator : %s' % clf_name)
     print(searcher.best_params_)
     print("\nBest score found for %s Score metric : %.3f" % (best, searcher.best_score_))
 
-    return final_results
+    return results
+
+
+def scores(name, y_test, y_pred):
+    if name == 'acc':
+        return accuracy_score(y_test, y_pred)
+    elif name == 'hamming_loss':
+        return hamming_loss(y_test, y_pred)
+    elif name == 'f1_micro':
+        return f1_score(y_test, y_pred, average='micro')
+    elif name == 'f1_macro':
+        return f1_score(y_test, y_pred, average='macro')
+    elif name == 'prec_micro':
+        return precision_score(y_test, y_pred, average='micro')
+    elif name == 'prec_macro':
+        return precision_score(y_test, y_pred, average='macro')
+
+
+def plot(metrics, clf, k, steps, c):
+    plt.figure(figsize=(10, 8))
+    plt.subplot(k)
+    plt.plot(steps, metrics[clf][1], c=c, label='RAkEL')  # 1 because we want the hamming loss score
+    plt.legend()
+    plt.ylim(0.05, 0.62)
+    plt.title('RAkEL ' + clf + 'Hamming Loss score')
+    plt.ylabel('Test Hamming Loss')
+    plt.xlabel('labelset size')
+    plt.grid(True)
+    print('Maximum Hamming Loss RAkEL ' + clf, np.round(max(metrics[clf][1]), 4))
+
+
+def RAkEL_plots(steps, metrics):
+    colors = ['r', 'g', 'b']
+    names = ['DecisionTreeClassifier', 'Logistic Regression', 'GaussianNB']
+    for n, k, c in zip(names, range(311, 314), colors):
+        plot(metrics, n, k, steps, c)
+
+    plt.show()
+
+
+def RAkEL_fit(clfs, steps, X_train, y_train, X_test, y_test):
+    metrics = {}
+    for key, clf in zip(clfs.keys(), clfs.values()):
+        acc = []
+        prec_micro = []
+        prec_macro = []
+        hamm_loss = []
+        f1_micro = []
+        f1_macro = []
+        print('Fitting RAkEL with Base Classifier: %s' % key)
+        for k in steps:
+            classifier = RakelD(base_classifier=clf, labelset_size=k)
+            classifier.fit(X_train, y_train)
+            prediction = classifier.predict(X_test)
+            acc.append(accuracy_score(y_test, prediction))
+            prec_micro.append(precision_score(y_test, prediction, average='micro'))
+            prec_macro.append(precision_score(y_test, prediction, average='macro'))
+            hamm_loss.append(hamming_loss(y_test, prediction))
+            f1_micro.append(f1_score(y_test, prediction, average='micro'))
+            f1_macro.append(f1_score(y_test, prediction, average='macro'))
+
+        metrics[key] = [acc, hamm_loss, f1_micro, f1_macro, prec_micro, prec_macro]
+
+    return metrics
+
+
+def CC_Fit(clfs, X_train, y_train, X_test, y_test, evaluate):
+    metrics_cc = {}
+    for key, clf in zip(clfs.keys(), clfs.values()):
+        print('Fitting Chain %s' % key)
+        chains = [ClassifierChain(clf, order='random', random_state=i) for i in range(10)]
+        for chain in chains:
+            chain.fit(X_train, y_train)
+
+        Y_pred_chains = np.array([chain.predict(X_test) for chain in
+                                  chains])
+
+        pred_ens = Y_pred_chains.mean(axis=0)
+        # Chain scores
+
+        for m in evaluate:
+            metrics_cc[key + ' ' + m] = [scores(m, y_test, y_pred >= .5) for y_pred in Y_pred_chains]
+            metrics_cc[key + ' ' + m + ' ensemble'] = scores(m, y_test, pred_ens >= .5)
+    return metrics_cc
+
+
+def CC_plots(model_names, clfs, metrics_cc, ind_scores):
+    for key in clfs.keys():
+        loss = [ind_scores[key + ' ' + 'hamming_loss']]
+        loss += metrics_cc[key + ' ' + 'hamming_loss']
+        loss.append(metrics_cc[key + ' ' + 'hamming_loss' + ' ensemble'])
+
+        x_pos = np.arange(len(model_names))
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.grid(True)
+        ax.set_title('Classifier Chain ' + key + ' Ensemble Performance Comparison')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(model_names, rotation='vertical')
+        ax.set_ylabel('Hamming Loss')
+        ax.set_ylim([min(loss) * .9, max(loss) * 1.1])
+        colors = ['r'] + ['b'] * (len(model_names) - 2) + ['g']
+        ax.bar(x_pos, loss, alpha=0.5, color=colors)
+        plt.tight_layout()
+        print('Maximum Hamming Loss Classifier Chain ' + key, np.round(max(loss), 4))
+        plt.show()
+
+
+def LB_fit(clfs, X_train, y_train, X_test, y_test, evaluate):
+    metrics_lb = {}
+    for key, clf in zip(clfs.keys(), clfs.values()):
+        print('Fitting Label Powerset with Classifier : %s' % key)
+        clf = LabelPowerset(clf)
+        clf.fit(X_train, y_train)
+        preds = clf.predict(X_test)
+        for m in evaluate:
+            metrics_lb[key + ' ' + m] = scores(m, y_test, preds)
+    return metrics_lb
+
+
+def LB_plots(scores_list, names):
+    fig, ax = plt.subplots()
+    ind = np.arange(1, 4)
+    # show the figure, but do not block
+    pm, pc, pn = plt.bar(ind, scores_list)
+    pm.set_facecolor('r')
+    pc.set_facecolor('g')
+    pn.set_facecolor('b')
+    ax.set_xticks(ind)
+    ax.set_xticklabels(names)
+    ax.set_ylim([0.05, 0.50])
+    ax.set_ylabel('Hamming Loss Score')
+    plt.show()
+    print('Maximum Score with Label Powersets', np.round(np.max(scores_list), 4), names[np.argmax(scores_list)])
+
+
+def final_results(metrics_cc, metrics_rk, metrics_lb, evaluate, names):
+    names_res = ['CC', 'RakEL', 'LabelPowerset']
+    scores_rk = {}
+    for n in names:
+        for m, k in zip(evaluate, range(len(evaluate))):
+            scores_rk[n + ' ' + m] = metrics_rk[n][k][0]
+
+    res = [metrics_cc, scores_rk, metrics_lb]
+
+    df = {}
+    for n in names:
+        for r, k in zip(names_res, res):
+            for m in evaluate:
+                if r == 'CC':
+                    df[n + ' ' + r + ' ' + m] = k[n + ' ' + m + ' ' + 'ensemble']
+                else:
+                    df[n + ' ' + r + ' ' + m] = k[n + ' ' + m]
+
+    df_lr = {}
+    df_dt = {}
+    df_nb = {}
+    for n_s in names_res:
+        for m in evaluate:
+            df_lr[n_s + ' ' + m] = df['Logistic Regression' + ' ' + n_s + ' ' + m]
+            df_dt[n_s + ' ' + m] = df['DecisionTreeClassifier' + ' ' + n_s + ' ' + m]
+            df_nb[n_s + ' ' + m] = df['GaussianNB' + ' ' + n_s + ' ' + m]
+
+    data_lr = [{'acc': df_lr[i + ' acc'], 'hamming_loss': df_lr[i + ' hamming_loss'],
+                'f1_micro': df_lr[i + ' f1_micro'], 'f1_macro': df_lr[i + ' f1_macro'],
+                'prec_micro': df_lr[i + ' prec_micro'], 'prec_macro': df_lr[i + ' prec_macro']} for i in names_res]
+    data_dt = [{'acc': df_dt[i + ' acc'], 'hamming_loss': df_dt[i + ' hamming_loss'],
+                'f1_micro': df_dt[i + ' f1_micro'], 'f1_macro': df_dt[i + ' f1_macro'],
+                'prec_micro': df_dt[i + ' prec_micro'], 'prec_macro': df_dt[i + ' prec_macro']} for i in names_res]
+    data_nb = [{'acc': df_nb[i + ' acc'], 'hamming_loss': df_nb[i + ' hamming_loss'],
+                'f1_micro': df_nb[i + ' f1_micro'], 'f1_macro': df_nb[i + ' f1_macro'],
+                'prec_micro': df_nb[i + ' prec_micro'], 'prec_macro': df_nb[i + ' prec_macro']} for i in names_res]
+
+    pd1 = pd.DataFrame(data_lr)
+    pd2 = pd.DataFrame(data_dt)
+    pd3 = pd.DataFrame(data_nb)
+
+    pd1 = pd1.rename(index={0: 'Logistic Regression CC', 1: 'Logistic Regression RAkEL',
+                            2: 'Logistic Regression LabelPowerset'})
+    pd2 = pd2.rename(index={0: 'DecisionTreeClassifier CC', 1: 'DecisionTreeClassifier RAkEL',
+                            2: 'DecisionTreeClassifier LabelPowerset'})
+    pd3 = pd3.rename(index={0: 'GaussianNB CC', 1: 'GaussianNB RAkEL',
+                            2: 'GaussianNB LabelPowerset'})
+
+    frames = [pd1, pd2, pd3]
+    pdfinal = pd.concat(frames)
+
+    return pdfinal
+
+
+def find_in_dict(target, d):
+    for key, value in d.items():
+        if value == target:
+            return key
+
+
+def best_results(final_res):
+    for key in final_res.keys():
+        score = np.max(final_res[key].values)
+        print('Best %s found : %.4f with classifier and method :%s' % (key, score, find_in_dict(score, final_res[key])))
