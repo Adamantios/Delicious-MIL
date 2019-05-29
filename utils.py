@@ -72,7 +72,7 @@ def redefine(base, keys, values):
     return dictionary
 
 
-def pipeline(method, X_train, y_train, scoring, params, search_r=True):
+def pipeline(method, X_train, y_train, scoring, params=None, search_r=True):
     if search_r:
         # Random search params
         r = np.random.uniform(-2, 2, size=5)
