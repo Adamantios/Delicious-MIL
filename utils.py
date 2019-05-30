@@ -10,12 +10,10 @@ from sklearn.metrics import accuracy_score, hamming_loss
 from sklearn.metrics import f1_score, precision_score
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
 from sklearn.multioutput import ClassifierChain
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.tree import DecisionTreeClassifier
 from skmultilearn.ensemble import RakelD
 from skmultilearn.problem_transform import BinaryRelevance
-from skmultilearn.problem_transform import ClassifierChain
-from skmultilearn.problem_transform import LabelPowerset
 from termcolor import colored
 
 labels = ['programming', 'style', 'reference', 'java', 'web', 'internet', 'culture', 'design', 'education', 'language',
@@ -65,74 +63,116 @@ def load_dataset(maxlen, path='./DeliciousMIL/Data', binary=False):
 
 
 def redefine(base, keys, values):
-    '''Inputs a dictionary keys and values and a base string
-    and outputs a new dictionary with the base string concatenated'''
+    """
+    Inputs a dictionary keys and values and a base string
+    and outputs a new dictionary with the base string concatenated.
+    """
     new_k = [base + keys[i] for i in range(len(keys))]
     dictionary = {new_k[i]: values[i] for i in range(len(keys))}
     return dictionary
 
 
-def pipeline(method, X_train, y_train, scoring, params=None, search_r=True):
+def micro_prec(y_true, y_pred):
+    return precision_score(y_true, y_pred, average='micro')
+
+
+def micro_f1(y_true, y_pred):
+    return f1_score(y_true, y_pred, average='micro')
+
+
+def pipeline(method, X_train, y_train, scoring, params=None, search_r=True, best=None):
     if search_r:
         # Random search params
         r = np.random.uniform(-2, 2, size=5)
         C = np.array(10 ** r)
-        var_exp = np.random.uniform(-2, -9, size=5)
-        var_smooth = np.array(10 ** var_exp)
+        alpha = np.random.uniform(0, 1, size=5)
 
         params_tree = {'__max_depth': sp.randint(1, 30),
                        '__max_features': sp.randint(1, X_train.shape[1]),
                        '__min_samples_split': sp.randint(2, X_train.shape[0] / 3),
                        '__criterion': ['gini', 'entropy']}
         params_lgr = {'__C': C}
-        params_nb = {'__var_smoothing': var_smooth}
+        params_nb = {'__alpha': alpha}
+
+        tree_k, tree_v = list(params_tree.keys()), list(params_tree.values())
+        lgr_k, lgr_v = list(params_lgr.keys()), list(params_lgr.values())
+        nb_k, nb_v = list(params_nb.keys()), list(params_nb.values())
 
     else:
-        params_tree, params_lgr, params_nb = params[0], params[1], params[2]
-
-    tree_k, tree_v = list(params_tree.keys()), list(params_tree.values())
-    lgr_k, lgr_v = list(params_lgr.keys()), list(params_lgr.values())
-    nb_k, nb_v = list(params_nb.keys()), list(params_nb.values())
+        params_cc, params_rk, params_bn = params[0], params[1], params[2]
 
     if method == 'CC':
-        base_str = 'base_estimator'
-        params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), redefine(base_str, lgr_k,
-                                                                                          lgr_v), redefine(base_str,
-                                                                                                           nb_k, nb_v)
-        params = [params_lgr, params_tree, params_nb]
+        base_str = 'classifier'
+        if search_r:
+            params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
+                                                 redefine(base_str, lgr_k, lgr_v), \
+                                                 redefine(base_str, nb_k, nb_v)
+            params = [params_lgr, params_tree, params_nb]
+        else:
+            params = params_cc
+            tree_k, tree_v = list(params[1].keys()), list(params[1].values())
+            lgr_k, lgr_v = list(params[0].keys()), list(params[0].values())
+            nb_k, nb_v = list(params[2].keys()), list(params[2].values())
+
+            params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
+                                                 redefine(base_str, lgr_k, lgr_v), \
+                                                 redefine(base_str, nb_k, nb_v)
+            params = [params_lgr, params_tree, params_nb]
 
         print(colored('Fitting Classifiers Chain pipeline...', 'green'))
         classifiers = {
             "Logistic Regression": ClassifierChain(LogisticRegression(random_state=0, solver='lbfgs', n_jobs=-1)),
             "Decision Tree Classifier": ClassifierChain(DecisionTreeClassifier()),
-            "Gaussian NaiveBayes": ClassifierChain(GaussianNB())}
+            "MultinomialNB": ClassifierChain(MultinomialNB())}
 
     elif method == 'RAkEL':
         base_str = 'base_classifier'
-        params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), redefine(base_str, lgr_k,
-                                                                                          lgr_v), redefine(base_str,
-                                                                                                           nb_k, nb_v)
-        params = [params_lgr, params_tree, params_nb]
+        if search_r:
+            params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
+                                                 redefine(base_str, lgr_k, lgr_v), \
+                                                 redefine(base_str, nb_k, nb_v)
+            params = [params_lgr, params_tree, params_nb]
 
+        else:
+            params = params_rk
+            tree_k, tree_v = list(params[1].keys()), list(params[1].values())
+            lgr_k, lgr_v = list(params[0].keys()), list(params[0].values())
+            nb_k, nb_v = list(params[2].keys()), list(params[2].values())
+
+            params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
+                                                 redefine(base_str, lgr_k, lgr_v), \
+                                                 redefine(base_str, nb_k, nb_v)
+            params = [params_lgr, params_tree, params_nb]
         print(colored('Fitting RAkEL pipeline...', 'green'))
         classifiers = {"Logistic Regression": RakelD(LogisticRegression(random_state=0, solver='lbfgs', n_jobs=-1)),
                        "Decision Tree Classifier": RakelD(DecisionTreeClassifier(),
                                                           labelset_size=5),
-                       "Gaussian NaiveBayes": RakelD(GaussianNB(),
-                                                     labelset_size=5)}
+                       "MultinomialNB": RakelD(MultinomialNB(),
+                                               labelset_size=5)}
 
     elif method == 'BinaryRelevance':
         base_str = 'classifier'
-        params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), redefine(base_str, lgr_k,
-                                                                                          lgr_v), redefine(base_str,
-                                                                                                           nb_k, nb_v)
-        params = [params_lgr, params_tree, params_nb]
+        if search_r:
 
+            params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
+                                                 redefine(base_str, lgr_k, lgr_v), \
+                                                 redefine(base_str, nb_k, nb_v)
+            params = [params_lgr, params_tree, params_nb]
+        else:
+            params = params_bn
+            tree_k, tree_v = list(params[1].keys()), list(params[1].values())
+            lgr_k, lgr_v = list(params[0].keys()), list(params[0].values())
+            nb_k, nb_v = list(params[2].keys()), list(params[2].values())
+
+            params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
+                                                 redefine(base_str, lgr_k, lgr_v), \
+                                                 redefine(base_str, nb_k, nb_v)
+            params = [params_lgr, params_tree, params_nb]
         print(colored('Fitting BinaryRelevance pipeline...', 'green'))
         classifiers = {
             "Logistic Regression": BinaryRelevance(LogisticRegression(random_state=0, solver='lbfgs', n_jobs=-1)),
             "Decision Tree Classifier": BinaryRelevance(DecisionTreeClassifier()),
-            "Gaussian NaiveBayes": BinaryRelevance(GaussianNB())}
+            "MultinomialNB": BinaryRelevance(MultinomialNB())}
 
     else:
         raise ValueError('Invalid method passed. Expected one of: "CC", "RAkEL", "BinaryRelevance", got {} instead'
@@ -140,7 +180,7 @@ def pipeline(method, X_train, y_train, scoring, params=None, search_r=True):
 
     res = {}
     for keys, classifier, par in zip(classifiers.keys(), classifiers.values(), params):
-        res[keys] = hyperparameters_search(classifier, par, X_train, y_train, 'Hamming Loss', scoring, keys,
+        res[keys] = hyperparameters_search(classifier, par, X_train, y_train, best, scoring, keys,
                                            candidates=30, random_search=search_r)
 
 
@@ -155,7 +195,7 @@ def hyperparameters_search(classifier, params, X, y, best, scoring, clf_name, ca
                                       verbose=verbose, scoring=scoring, refit=best)
     else:
         searcher = GridSearchCV(classifier, params, cv=4, n_jobs=-1,
-                                verbose=0, scoring=scoring, refit=best)
+                                verbose=verbose, scoring=scoring, refit=best)
 
     # Finding the best parameters in the original set in order to generalize better
     searcher.fit(X, y)
@@ -190,19 +230,19 @@ def scores(name, y_test, y_pred):
 def plot(metrics, clf, k, steps, c):
     plt.figure(figsize=(10, 8))
     plt.subplot(k)
-    plt.plot(steps, metrics[clf][1], c=c, label='RAkEL')  # 1 because we want the hamming loss score
+    plt.plot(steps, metrics[clf][2], c=c, label='RAkEL')  # 2 because we want the f1 micro score
     plt.legend()
     plt.ylim(0.05, 0.62)
-    plt.title('RAkEL ' + clf + 'Hamming Loss score')
-    plt.ylabel('Test Hamming Loss')
+    plt.title('RAkEL ' + clf + 'MicroF1 score')
+    plt.ylabel('Test MicroF1')
     plt.xlabel('labelset size')
     plt.grid(True)
-    print('Maximum Hamming Loss RAkEL ' + clf, np.round(max(metrics[clf][1]), 4))
+    print('Maximum MicroF1 RAkEL ' + clf, np.round(max(metrics[clf][2]), 4))
 
 
 def RAkEL_plots(steps, metrics):
     colors = ['r', 'g', 'b']
-    names = ['DecisionTreeClassifier', 'Logistic Regression', 'GaussianNB']
+    names = ['DecisionTreeClassifier', 'Logistic Regression', 'MultinomialNB']
     for n, k, c in zip(names, range(311, 314), colors):
         plot(metrics, n, k, steps, c)
 
@@ -257,9 +297,9 @@ def CC_Fit(clfs, X_train, y_train, X_test, y_test, evaluate):
 
 def CC_plots(model_names, clfs, metrics_cc, ind_scores):
     for key in clfs.keys():
-        loss = [ind_scores[key + ' ' + 'hamming_loss']]
-        loss += metrics_cc[key + ' ' + 'hamming_loss']
-        loss.append(metrics_cc[key + ' ' + 'hamming_loss' + ' ensemble'])
+        loss = [ind_scores[key + ' ' + 'f1_micro']]
+        loss += metrics_cc[key + ' ' + 'f1_micro']
+        loss.append(metrics_cc[key + ' ' + 'f1_micro' + ' ensemble'])
 
         x_pos = np.arange(len(model_names))
         fig, ax = plt.subplots(figsize=(8, 4))
@@ -272,15 +312,15 @@ def CC_plots(model_names, clfs, metrics_cc, ind_scores):
         colors = ['r'] + ['b'] * (len(model_names) - 2) + ['g']
         ax.bar(x_pos, loss, alpha=0.5, color=colors)
         plt.tight_layout()
-        print('Maximum Hamming Loss Classifier Chain ' + key, np.round(max(loss), 4))
+        print('Maximum F1 score Classifier Chain ' + key, np.round(max(loss), 4))
         plt.show()
 
 
-def LB_fit(clfs, X_train, y_train, X_test, y_test, evaluate):
+def BN_fit(clfs, X_train, y_train, X_test, y_test, evaluate):
     metrics_lb = {}
     for key, clf in zip(clfs.keys(), clfs.values()):
-        print('Fitting Label Powerset with Classifier : %s' % key)
-        clf = LabelPowerset(clf)
+        print('Fitting BinaryRelevance with Classifier : %s' % key)
+        clf = BinaryRelevance(clf)
         clf.fit(X_train, y_train)
         preds = clf.predict(X_test)
         for m in evaluate:
@@ -288,7 +328,7 @@ def LB_fit(clfs, X_train, y_train, X_test, y_test, evaluate):
     return metrics_lb
 
 
-def LB_plots(scores_list, names):
+def BN_plots(scores_list, names):
     fig, ax = plt.subplots()
     ind = np.arange(1, 4)
     # show the figure, but do not block
@@ -329,7 +369,7 @@ def final_results(metrics_cc, metrics_rk, metrics_lb, evaluate, names):
         for m in evaluate:
             df_lr[n_s + ' ' + m] = df['Logistic Regression' + ' ' + n_s + ' ' + m]
             df_dt[n_s + ' ' + m] = df['DecisionTreeClassifier' + ' ' + n_s + ' ' + m]
-            df_nb[n_s + ' ' + m] = df['GaussianNB' + ' ' + n_s + ' ' + m]
+            df_nb[n_s + ' ' + m] = df['MultinomialNB' + ' ' + n_s + ' ' + m]
 
     data_lr = [{'acc': df_lr[i + ' acc'], 'hamming_loss': df_lr[i + ' hamming_loss'],
                 'f1_micro': df_lr[i + ' f1_micro'], 'f1_macro': df_lr[i + ' f1_macro'],
@@ -346,11 +386,11 @@ def final_results(metrics_cc, metrics_rk, metrics_lb, evaluate, names):
     pd3 = pd.DataFrame(data_nb)
 
     pd1 = pd1.rename(index={0: 'Logistic Regression CC', 1: 'Logistic Regression RAkEL',
-                            2: 'Logistic Regression LabelPowerset'})
+                            2: 'Logistic Regression Binary Relevance'})
     pd2 = pd2.rename(index={0: 'DecisionTreeClassifier CC', 1: 'DecisionTreeClassifier RAkEL',
-                            2: 'DecisionTreeClassifier LabelPowerset'})
-    pd3 = pd3.rename(index={0: 'GaussianNB CC', 1: 'GaussianNB RAkEL',
-                            2: 'GaussianNB LabelPowerset'})
+                            2: 'DecisionTreeClassifier Binary Relevance'})
+    pd3 = pd3.rename(index={0: 'MultinomialNB CC', 1: 'MultinomialNB RAkEL',
+                            2: 'MultinomialNB Binary Relevance'})
 
     frames = [pd1, pd2, pd3]
     pdfinal = pd.concat(frames)
@@ -366,5 +406,8 @@ def find_in_dict(target, d):
 
 def best_results(final_res):
     for key in final_res.keys():
-        score = np.max(final_res[key].values)
+        if key == 'hamming_loss':
+            score = np.min(final_res[key].values)
+        else:
+            score = np.max(final_res[key].values)
         print('Best %s found : %.4f with classifier and method :%s' % (key, score, find_in_dict(score, final_res[key])))
