@@ -102,7 +102,7 @@ def pipeline(method, X_train, y_train, scoring, params=None, search_r=True, best
         params_cc, params_rk, params_bn = params[0], params[1], params[2]
 
     if method == 'CC':
-        base_str = 'classifier'
+        base_str = 'base_estimator'
         if search_r:
             params_tree, params_lgr, params_nb = redefine(base_str, tree_k, tree_v), \
                                                  redefine(base_str, lgr_k, lgr_v), \
